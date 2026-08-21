@@ -30,7 +30,7 @@ test("exposes a configurable maxRetries schema", () => {
 
 test("retries every office failure and preserves the provider request boundary", async () => {
   const h = harness();
-  apply(h.ctx, { provider: "myhexin-office", maxRetries: 2, initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 }, { random: () => 0.5 });
+  apply(h.ctx, { maxRetries: 2, initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 }, { random: () => 0.5 });
   assert.deepEqual(await h.invoke({ turn: 1, step: 0, provider: "myhexin-office", failure, signal: new AbortController().signal }), { kind: "retry" });
   assert.deepEqual(await h.invoke({ turn: 1, step: 0, provider: "myhexin-office", failure, signal: new AbortController().signal }), { kind: "retry" });
   let delegated = 0;
@@ -45,7 +45,7 @@ test("retries every office failure and preserves the provider request boundary",
 
 test("caps retries at exactly 200 and retries a non-default failure code", async () => {
   const h = harness();
-  apply(h.ctx, { provider: "myhexin-office", maxRetries: 200, initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 });
+  apply(h.ctx, { maxRetries: 200, initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 });
   for (let i = 1; i <= 200; i += 1) {
     assert.deepEqual(await h.invoke({ turn: 7, step: 2, provider: "myhexin-office", failure: { code: "INVALID_REQUEST", message: "bad wire" }, signal: new AbortController().signal }), { kind: "retry" });
   }
@@ -57,23 +57,23 @@ test("caps retries at exactly 200 and retries a non-default failure code", async
   await h.dispose();
 });
 
-test("does not retry other providers or an aborted request", async () => {
+test("retries every provider but not an aborted request", async () => {
   const h = harness();
-  apply(h.ctx, { provider: "myhexin-office", maxRetries: 2, initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 });
+  apply(h.ctx, { maxRetries: 2, initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 });
   let delegated = 0;
   const next = async () => { delegated += 1; };
-  assert.equal(await h.invoke({ turn: 1, step: 0, provider: "other", failure, signal: new AbortController().signal }, next), undefined);
+  assert.deepEqual(await h.invoke({ turn: 1, step: 0, provider: "other", failure, signal: new AbortController().signal }), { kind: "retry" });
   const controller = new AbortController();
   controller.abort();
   assert.equal(await h.invoke({ turn: 1, step: 0, provider: "myhexin-office", failure, signal: controller.signal }, next), undefined);
-  assert.equal(delegated, 2);
-  assert.equal(h.agent.session.events.length, 0);
+  assert.equal(delegated, 1);
+  assert.equal(h.agent.session.events.filter((e) => e.type === "llm/retry").length, 1);
   await h.dispose();
 });
 
 test("cancelling backoff prevents retry-started", async () => {
   const h = harness();
-  apply(h.ctx, { provider: "myhexin-office", maxRetries: 2, initialDelayMs: 1000, maxDelayMs: 1000, jitterRatio: 0 });
+  apply(h.ctx, { maxRetries: 2, initialDelayMs: 1000, maxDelayMs: 1000, jitterRatio: 0 });
   const controller = new AbortController();
   const pending = h.invoke({ turn: 1, step: 0, provider: "myhexin-office", failure, signal: controller.signal });
   controller.abort();

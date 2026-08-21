@@ -1,7 +1,7 @@
 {
   "name": "dsh-office-llm-retry",
   "version": "0.1.0",
-  "description": "Configurable capped retries for unstable DSH office-network LLM requests",
+  "description": "Configurable capped retries for DSH model requests across all providers",
   "private": false,
   "type": "module",
   "main": "index.js",

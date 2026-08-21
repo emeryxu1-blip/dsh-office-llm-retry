@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import z from "@deepseek-ai/schemastery";
 
-export const name = "office-llm-retry";
+export const name = "dsh-llm-retry-capped";
 export const inject = ["agents"];
 
 const DEFAULTS = Object.freeze({
-  provider: "myhexin-office",
   maxRetries: 200,
   initialDelayMs: 500,
   maxDelayMs: 10_000,
@@ -16,9 +15,6 @@ function validateConfig(input) {
   const config = { ...DEFAULTS, ...(input ?? {}) };
   for (const key of Object.keys(input ?? {})) {
     if (!(key in DEFAULTS)) throw new Error(`${name}: unknown key "${key}"`);
-  }
-  if (config.provider !== undefined && (typeof config.provider !== "string" || config.provider.length === 0)) {
-    throw new Error(`${name}: provider must be a non-empty string`);
   }
   if (!Number.isSafeInteger(config.maxRetries) || config.maxRetries < 0) {
     throw new Error(`${name}: maxRetries must be a non-negative safe integer`);
@@ -57,7 +53,7 @@ function wait(delayMs, signal) {
 }
 
 function policyKey(config) {
-  return JSON.stringify([name, config.provider, config.maxRetries, config.initialDelayMs, config.maxDelayMs, config.jitterRatio]);
+  return JSON.stringify([name, config.maxRetries, config.initialDelayMs, config.maxDelayMs, config.jitterRatio]);
 }
 
 function retryCount(session, turn, step, provider, key) {
@@ -82,7 +78,7 @@ export function apply(ctx, rawConfig = {}, internals = {}) {
   const key = policyKey(config);
 
   async function recover({ agent, turn, step, provider, failure, signal }, next) {
-    if (lifetime.signal.aborted || signal.aborted || (config.provider !== undefined && provider !== config.provider)) return next();
+    if (lifetime.signal.aborted || signal.aborted) return next();
     const previous = retryCount(agent.session, turn, step, provider, key);
     if (previous >= config.maxRetries) return next();
     const retry = previous + 1;
@@ -113,7 +109,6 @@ export function apply(ctx, rawConfig = {}, internals = {}) {
 }
 
 export const Config = z.object({
-  provider: z.string().default("myhexin-office"),
   maxRetries: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER).default(200),
   initialDelayMs: z.number().min(Number.MIN_VALUE).default(500),
   maxDelayMs: z.number().min(Number.MIN_VALUE).default(10_000),
