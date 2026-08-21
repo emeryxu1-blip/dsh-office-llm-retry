@@ -1,0 +1,9 @@
+- insert:
+    - id: office-llm-retry
+      name: '@local/dsh-office-llm-retry'
+      config:
+        provider: myhexin-office
+        maxRetries: 200
+        initialDelayMs: 500
+        maxDelayMs: 10000
+        jitterRatio: 0.1

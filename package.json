@@ -1,0 +1,30 @@
+{
+  "name": "dsh-office-llm-retry",
+  "version": "0.1.0",
+  "description": "Configurable capped retries for unstable DSH office-network LLM requests",
+  "private": false,
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "scripts": {
+    "test": "node --test test/index.test.mjs"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "llm",
+    "retry",
+    "cordis"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
