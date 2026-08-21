@@ -38,6 +38,7 @@ test("retries every office failure and preserves the provider request boundary",
   assert.equal(delegated, 1);
   assert.deepEqual(h.agent.session.events.filter((e) => e.type === "llm/retry").map((e) => e.data.retry), [1, 2]);
   assert.equal(h.agent.session.events.find((e) => e.type === "llm/retry").data.mode, "normal");
+  assert.equal(h.agent.session.events.find((e) => e.type === "llm/retry").data.maxRetries, 2);
   assert.deepEqual(h.agent.session.events.filter((e) => e.type === "llm/retry-started").map((e) => e.data.retry), [1, 2]);
   await h.dispose();
 });

@@ -15,7 +15,7 @@ The plugin listens at DSH's `agent/request-error` boundary and retries the compl
 
 Partial failed stream output is not promoted to durable assistant history. The next attempt reconstructs the request from durable session state, so the model receives the same prompt/history.
 
-The retry count is configurable. **The default is 200 retries after the initial attempt**, for at most 201 provider calls. When the configured retry budget is exhausted, the original failure is returned and the turn stops.
+The retry count is configurable. **The default is 200 retries after the initial attempt**, for at most 201 provider calls. Each durable retry event includes the configured `maxRetries`, so the DSH UI displays the configured budget—for example `Retrying model request (1/200)`—instead of the built-in provider budget. When the configured retry budget is exhausted, the original failure is returned and the turn stops.
 
 > Important: retries can repeat input-token billing. Permanent authentication or configuration failures may consume the full retry budget.
 
