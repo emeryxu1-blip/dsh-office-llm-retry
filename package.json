@@ -1,15 +1,16 @@
 {
   "name": "dsh-office-llm-retry",
-  "version": "0.1.0",
-  "description": "Configurable capped retries for DSH model requests across all providers",
+  "version": "0.2.0",
+  "description": "Company-scoped DSH gateway discovery and capped native retries, independent of UI themes",
   "private": false,
   "type": "module",
   "main": "index.js",
   "exports": {
-    ".": "./index.js"
+    ".": "./index.js",
+    "./gateway": "./gateway.js"
   },
   "scripts": {
-    "test": "node --test test/index.test.mjs"
+    "test": "node --test test/*.test.mjs"
   },
   "keywords": [
     "deepseek-harness",
@@ -26,5 +27,15 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "index.js",
+    "gateway.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md"
+  ]
 }

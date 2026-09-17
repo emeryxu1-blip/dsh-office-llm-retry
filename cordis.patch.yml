@@ -1,8 +1,12 @@
+# Keep DSH's built-in llm-retry enabled; it executes the company-scoped policy.
 - insert:
     - id: dsh-llm-retry-capped
       name: 'dsh-office-llm-retry'
       config:
+        provider: myhexin-office
         maxRetries: 200
         initialDelayMs: 500
         maxDelayMs: 10000
         jitterRatio: 0.1
+        gateway:
+          enabled: false
