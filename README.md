@@ -2,18 +2,26 @@
 
 [中文说明](README.zh-CN.md)
 
-Company gateway discovery and finite retries for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), tested with **DSH 0.1.5-rc.1**. Version 0.2.0 uses DSH's native provider retry policy and session projections. It has no Matrix Skin dependency, stylesheet, browser script, global launcher, or machine-specific path.
+Company gateway discovery and finite retries for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), tested with the official **DSH Desktop 0.2.2-rc.3** runtime. Version 0.3.0 uses DSH's native provider retry policy and session projections. It has no Matrix Skin dependency, stylesheet, browser script, global launcher, or machine-specific path.
 
 The plugin owns only `llm-pi-ai.providers.myhexin-office`. DeepSeek's official provider keeps its factory model list, Effort choices, and retry behavior. Other providers, the chosen default model, and existing conversations are unchanged.
 
 ## Install
 
-Requires Node.js 20 or newer, DSH 0.1.5-rc.1 or newer compatible settings APIs, the standard `llm-pi-ai` adapter, and the built-in `llm-retry` plugin.
+Requires DSH 0.2.2-rc.3 or a compatible newer 0.2.x runtime (Node.js 24.9 or newer for CLI use), the standard `llm-pi-ai` adapter, and the built-in `llm-retry` plugin.
+
+For Desktop, open the official app once and use **Manage dsh Command…** in its application menu to install that Desktop installation’s command. Then fully quit the app before running the plugin command. The npm CLI cannot manage the reserved Desktop profile.
 
 ```bash
-# Use DSH's plugin manager so it reconciles the bundle:
-dsh plugin --profile web add -w /path/to/dsh-office-llm-retry
+# With the Desktop-supplied dsh command, while Desktop is fully quit:
+dsh plugin --profile desktop add github:emeryxu1-blip/dsh-office-llm-retry#v0.3.0
+# Reopen DeepSeek Harness from Applications.
+
+# For a separate Web/CLI installation:
+dsh plugin --profile web add github:emeryxu1-blip/dsh-office-llm-retry#v0.3.0
 ```
+
+The Desktop Plugins page can also install this GitHub package. Desktop and Web have separate executable dependencies, activation manifests, and profile patches; installing in Web does not enable the plugin in Desktop.
 
 The package declares `dsh.bundle` with `cordis.patch.yml`. Keep **the native `llm-retry` enabled**. Remove the old `id: llm-retry / disabled: true` override when upgrading from 0.1.0. No custom `agent/request-error` handler remains. For a legacy manual installation, ensure the package is in the profile's `dependencies` (not only `devDependencies`) and its name is present in `dsh.profile.bundles`. Once the bundle supplies the entry, replace any old manual `insert` for `dsh-llm-retry-capped` with the ID-only configuration override shown below; two inserts would load the plugin twice. A plain `pnpm add` does not perform DSH bundle reconciliation.
 
@@ -36,7 +44,7 @@ Store the company key through DSH's credential service under `MYHEXIN_OFFICE_API
       refreshIntervalMs: 900000
 ```
 
-Settings are also available under the `dsh-office-llm-retry` namespace. Without a company route, discovery opt-in, and an available company credential, installing this plugin does not create a company provider. Discovery defaults to disabled. An existing recognized company route still receives the scoped retry policy.
+Live settings appear under the profile entry ID `dsh-llm-retry-capped`. Version 0.3.0 reads Loader-owned volatile configuration and revisioned settings descriptors instead of the removed `settings.register/get` API. When migrating an older profile, move any `dsh-office-llm-retry` settings section into the `dsh-llm-retry-capped` entry’s `config` in that profile’s `cordis.patch.yml`. Without a company route, discovery opt-in, and an available company credential, installing this plugin does not create a company provider. Discovery defaults to disabled. An existing recognized company route still receives the scoped retry policy.
 
 When enabled, the plugin reads the Office portal's current gateway:
 
@@ -47,7 +55,7 @@ It automatically migrates the recognized old `https://aimemodeldev.myhexin.com/l
 
 ## Models and Effort
 
-Discovery runs asynchronously after launch. Startup logs report the catalog, availability and Effort phases, then aggregate counts; the dropdown updates after validation finishes. Late registration of the pi-ai settings namespace is awaited without network polling.
+Discovery runs asynchronously after launch. Startup logs report the catalog, availability and Effort phases, then aggregate counts; the dropdown updates after validation finishes. Late activation of the pi-ai settings descriptor is awaited without network polling.
 
 The catalog follows `/models`. Effort choices come from explicit model metadata or gateway validation, never from a model name. With `verifyEfforts: true`, the plugin uses bounded `max_tokens: 1` validation probes when metadata is absent. A gateway that accepts invalid input without explaining supported choices does not prove a capability: unknown Effort controls stay hidden. These probes can generate a minimal response on servers that ignore invalid input.
 
@@ -78,7 +86,7 @@ pnpm test
 DSH_RUNTIME_MODULES=/path/to/dsh/node_modules pnpm test
 ```
 
-Tests cover provider isolation, credential and endpoint races, capability validation, caching, cancellation, empty catalogs, native projection retry limits, and the official five-retry default. The integration tests skip when `DSH_RUNTIME_MODULES` is omitted.
+Tests cover real upstream Loader/settings persistence, live-config updates and validation, provider isolation, credential and endpoint races, capability validation, caching, cancellation, empty catalogs, native projection retry limits, and the official five-retry default. The integration tests skip when `DSH_RUNTIME_MODULES` is omitted. Run against extracted or installed upstream npm runtime modules; an `app.asar` path is not a normal Node module directory.
 
 ## License
 

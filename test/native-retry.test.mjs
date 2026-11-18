@@ -21,10 +21,13 @@ async function nativeHarness() {
     get events() { throw new Error("legacy session.events access"); },
     append(type, data) { events.push({ type, data }); state = projection.apply(state, { type, data }); },
   };
-  retry.apply({
+  await retry.apply({
+    fiber: { uid: 1 },
     sessionProjections: {
-      register(value) { projection = value; state = value.init(); },
-      stateOf() { return state; },
+      register(value) {
+        projection = value; state = value.init();
+        return Promise.resolve({ stateOf: () => state });
+      },
     },
     on(type, fn) { assert.equal(type, "agent/request-error"); listener = fn; return () => {}; },
     effect(factory) { cleanup = factory(); },

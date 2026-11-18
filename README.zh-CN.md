@@ -2,18 +2,26 @@
 
 [English README](README.md)
 
-为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供公司网关模型发现和有限次数重试，已验证 **DSH 0.1.5-rc.1**。0.2.0 改为使用 DSH 原生 provider retry policy 和 session projections，无 Matrix Skin 依赖、样式、浏览器脚本、全局启动包装或个人绝对路径。
+为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供公司网关模型发现和有限次数重试，已验证官方 **DSH Desktop 0.2.2-rc.3** 运行时。0.3.0 改为使用 DSH 原生 provider retry policy 和 session projections，无 Matrix Skin 依赖、样式、浏览器脚本、全局启动包装或个人绝对路径。
 
 插件只管理 `llm-pi-ai.providers.myhexin-office`。DeepSeek 官方 API 保留出厂模型列表、Effort 选项与重试行为；其他 provider、默认模型选择和已有对话不变。公司插件和 Matrix Skin 可以独立安装、同时使用。
 
 ## 安装与升级
 
-需要 Node.js 20+、DSH 0.1.5-rc.1 或保留兼容 settings API 的新版、标准 `llm-pi-ai` 适配器与内置 `llm-retry`。
+需要 DSH 0.2.2-rc.3 或兼容的 0.2.x 新版（CLI 环境需要 Node.js 24.9+）、标准 `llm-pi-ai` 适配器与内置 `llm-retry`。
+
+Desktop 首次安装后先打开一次，在应用菜单 **Manage dsh Command…** 中安装 Desktop 自带命令，再完全退出应用后执行插件命令。npm 安装的 CLI 不能管理保留的 Desktop profile。
 
 ```bash
-# 使用 DSH 插件管理器，同时完成 bundle 配置同步：
-dsh plugin --profile web add -w /path/to/dsh-office-llm-retry
+# 使用 Desktop 自带 dsh，且 Desktop 已完全退出：
+dsh plugin --profile desktop add github:emeryxu1-blip/dsh-office-llm-retry#v0.3.0
+# 完成后从“应用程序”重新打开 DeepSeek Harness。
+
+# 独立 Web/CLI 环境：
+dsh plugin --profile web add github:emeryxu1-blip/dsh-office-llm-retry#v0.3.0
 ```
+
+也可以在 Desktop 的 Plugins 页面安装这个 GitHub 包。Desktop 和 Web 分别管理可执行依赖、启用清单与 profile patch；在 Web 安装不会自动启用 Desktop 插件。
 
 包通过 `dsh.bundle` 声明 `cordis.patch.yml`。**必须保留内置 `llm-retry` 启用**。从 0.1.0 升级时，删除以前的 `id: llm-retry / disabled: true` 覆盖。本插件已不再监听 `agent/request-error`，不会叠加第二套重试。旧版手动安装还应确认：包位于 profile 的 `dependencies`（仅在 `devDependencies` 中不足以被识别），包名已加入 `dsh.profile.bundles`。bundle 提供插件条目后，把旧的 `dsh-llm-retry-capped` 手动 `insert` 改为下文仅按 ID 覆盖的配置，避免同一插件插入两次。单独执行 `pnpm add` 不会完成 DSH bundle 同步。
 
@@ -36,7 +44,7 @@ dsh plugin --profile web add -w /path/to/dsh-office-llm-retry
       refreshIntervalMs: 900000
 ```
 
-也可以在 DSH 的 `dsh-office-llm-retry` settings namespace 中配置。发现功能默认关闭；没有公司路由时，仅安装插件不会添加公司 provider，需要显式启用发现并存在公司凭据。对于已经识别的公司路由，插件仍会配置专属重试策略。
+实时设置以 profile 条目 ID `dsh-llm-retry-capped` 为 namespace。0.3.0 使用 Loader 的 volatile 配置与带版本号的 settings descriptor，替代新版已移除的 `settings.register/get` API。迁移旧 profile 时，把 `dsh-office-llm-retry` 设置段移入该 profile 的 `cordis.patch.yml` 中 `dsh-llm-retry-capped` 条目的 `config`。发现功能默认关闭；没有公司路由时，仅安装插件不会添加公司 provider，需要显式启用发现并存在公司凭据。对于已经识别的公司路由，插件仍会配置专属重试策略。
 
 启用后使用公司门户的新地址：
 
@@ -47,7 +55,7 @@ dsh plugin --profile web add -w /path/to/dsh-office-llm-retry
 
 ## 模型与 Effort
 
-发现会在启动后异步执行。日志只记录目录读取、可用性检查、Effort 检查阶段及最终数量；下拉菜单在验证完成后更新。若 pi-ai 的 settings namespace 稍后才注册，插件会等待本地依赖就绪，不会反复发起网络探测。
+发现会在启动后异步执行。日志只记录目录读取、可用性检查、Effort 检查阶段及最终数量；下拉菜单在验证完成后更新。若 pi-ai 的 settings descriptor 稍后才激活，插件会等待本地依赖就绪，不会反复发起网络探测。
 
 下拉菜单跟随 `/models`。Effort 只接受模型列表明确提供的元数据，或网关验证返回的确切支持等级，不再按模型名字猜测。`verifyEfforts: true` 时，缺少元数据会执行 `max_tokens: 1` 的有界验证探测。如果服务静默接受非法参数，不能据此认定支持某些等级：未经证实的 Effort 选项隐藏。静默接受参数的服务可能产生极小的实际响应。
 

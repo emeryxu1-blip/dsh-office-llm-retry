@@ -5,7 +5,7 @@ import { discoverOfficeGatewayCatalog, OFFICE_PROVIDER_ID, API_KEY_REFERENCE, OF
 // Keep the entry identity stable so existing Cordis patches upgrade in place.
 export const name = "dsh-llm-retry-capped";
 export const inject = ["settings", "llm", "credentials"];
-export const SETTINGS_NAMESPACE = "dsh-office-llm-retry";
+export const SETTINGS_NAMESPACE = name;
 const PROVIDER_NAMESPACE = "llm-pi-ai";
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const OFFICE_ENDPOINTS = new Set(["https://aimemodeldev.myhexin.com/litellm/v1", OFFICE_INFERENCE_BASE_URL]);
@@ -50,7 +50,7 @@ export function validateConfig(input = {}) {
   if (!Number.isFinite(config.jitterRatio) || config.jitterRatio < 0 || config.jitterRatio > 1) {
     throw new Error(`${name}: jitterRatio must be between 0 and 1`);
   }
-  if (!Array.isArray(config.retryableCodes) || config.retryableCodes.some((code) => typeof code !== "string" || !code.trim())) {
+  if (!Array.isArray(config.retryableCodes) || config.retryableCodes.length === 0 || config.retryableCodes.some((code) => typeof code !== "string" || !code.trim())) {
     throw new Error(`${name}: retryableCodes must contain non-empty failure codes`);
   }
   for (const key of ["enabled", "verifyEfforts", "verifyAvailability"]) {
@@ -72,6 +72,15 @@ export function officeRetryPolicy(config) {
 }
 
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+const providerDescriptor = (ctx) => ctx.settings.describe().find((entry) => entry.ns === PROVIDER_NAMESPACE);
+
+/** Read Loader-owned volatile fields; direct programmatic callers may pass plain values. */
+export function configValues(config = {}) {
+  return Object.fromEntries(Object.entries(config).map(([key, value]) => [key,
+    value && typeof value.get === "function" ? value.get() : value,
+  ]));
+}
+
 const identity = (provider) => provider ? [provider.api, provider.baseURL?.replace(/\/+$/, ""), provider.apiKeyEnv] : null;
 export function isOfficeProvider(provider) {
   return provider?.api === "openai-completions"
@@ -88,7 +97,7 @@ export function createOfficeController(ctx, getConfig, internals = {}) {
 
   async function synchronize(discoverModels) {
     const config = validateConfig(getConfig());
-    const section = ctx.settings.get(PROVIDER_NAMESPACE);
+    const section = providerDescriptor(ctx)?.value;
     if (!section || stopped) return;
     const existing = section.providers?.[config.provider];
     if (existing && !isOfficeProvider(existing)) return;
@@ -131,11 +140,12 @@ export function createOfficeController(ctx, getConfig, internals = {}) {
     if (discovered && (await credentials?.resolve(API_KEY_REFERENCE))?.value !== credential) return;
     // Do not install a late catalog after disposal or a settings change.
     if (stopped || !same(config, validateConfig(getConfig()))) return;
-    const latest = ctx.settings.get(PROVIDER_NAMESPACE)?.providers?.[config.provider];
+    const descriptor = providerDescriptor(ctx);
+    const latest = descriptor?.value?.providers?.[config.provider];
     if (!latest && !discovered) return;
     // A removed or repurposed route, or a rotated key, invalidates old discovery.
     if (!same(identity(existing), identity(latest))) return;
-    const revision = ctx.settings.describe?.().find((entry) => entry.ns === PROVIDER_NAMESPACE)?.revision;
+    const revision = descriptor?.revision;
     const reportSummary = () => {
       if (discovered) ctx.logger.info?.(`Office gateway: synchronization complete (advertised=${discovered.advertised ?? discovered.provider.models.length}, available=${discovered.available ?? discovered.provider.models.length}, effortCapable=${discovered.effortCapable ?? discovered.provider.models.filter((model) => model.reasoningEfforts && model.reasoningEfforts !== false).length}).`);
     };
@@ -178,9 +188,10 @@ export function createOfficeController(ctx, getConfig, internals = {}) {
 }
 
 export function apply(ctx, rawConfig = {}, internals = {}) {
-  const entry = validateConfig(rawConfig);
-  const scope = ctx.settings.register(SETTINGS_NAMESPACE, Config, { base: entry, validate: validateConfig });
-  const controller = createOfficeController(ctx, () => scope.get(), internals);
+  const getConfig = () => validateConfig(configValues(rawConfig));
+  const entry = getConfig();
+  let previousConfig = entry;
+  const controller = createOfficeController(ctx, getConfig, internals);
   let timer;
   let namespaceTimer;
   const refresh = (models = true) => controller.refresh(models).catch(() => {
@@ -188,29 +199,41 @@ export function apply(ctx, rawConfig = {}, internals = {}) {
   });
   function schedule() {
     clearInterval(timer);
-    const config = validateConfig(scope.get());
+    const config = getConfig();
     if (config.gateway.enabled && config.gateway.refreshIntervalMs > 0) {
       timer = setInterval(() => { void refresh(); }, config.gateway.refreshIntervalMs);
       timer.unref?.();
     }
   }
   function initializeWhenProviderSettingsExist() {
-    if (ctx.settings.get(PROVIDER_NAMESPACE) !== undefined) {
+    if (providerDescriptor(ctx) !== undefined) {
       void refresh();
       return;
     }
-    // Settings.register emits no namespace-registration event. Wait only for
+    // A later adapter may not have an active Config descriptor yet. Wait only for
     // this local dependency; this timer never makes a gateway request itself.
     namespaceTimer = setTimeout(initializeWhenProviderSettingsExist, internals.namespaceRetryMs ?? 1000);
     namespaceTimer.unref?.();
   }
   const disposers = [
-    scope.watch(() => { controller.cancelDiscovery(); schedule(); return refresh(); }),
-    ctx.on("settings/updated", (namespace) => {
+    ctx.on("internal/config", (fiber, next) => {
+      const raw = next();
+      if (fiber === ctx.fiber) validateConfig(configValues(Config(raw)));
+      return raw;
+    }),
+    ctx.on("loader/volatile-update", () => {
+      const config = getConfig();
+      if (same(config, previousConfig)) return;
+      previousConfig = config;
+      controller.cancelDiscovery();
+      schedule();
+      return refresh();
+    }),
+    ctx.on("settings/document-updated", (namespace) => {
       if (namespace === PROVIDER_NAMESPACE) return refresh(false);
     }),
     ctx.on("credentials/reference-updated", (ref) => {
-      const provider = ctx.settings.get(PROVIDER_NAMESPACE)?.providers?.[entry.provider];
+      const provider = providerDescriptor(ctx)?.value?.providers?.[entry.provider];
       if (ref === (provider?.apiKeyEnv ?? API_KEY_REFERENCE)) {
         controller.cancelDiscovery();
         return refresh();
@@ -218,8 +241,8 @@ export function apply(ctx, rawConfig = {}, internals = {}) {
     }),
   ];
   schedule();
-  // Cordis 4 has no application `ready` event. Injected services are ready
-  // before apply; a later adapter may still register its settings namespace.
+  // Injected services are ready before apply; a later adapter may still be
+  // activating its Loader-owned volatile configuration descriptor.
   initializeWhenProviderSettingsExist();
   ctx.effect(() => async () => {
     clearInterval(timer);
@@ -230,16 +253,16 @@ export function apply(ctx, rawConfig = {}, internals = {}) {
 }
 
 export const Config = z.object({
-  provider: z.const(OFFICE_PROVIDER_ID).default(OFFICE_PROVIDER_ID),
-  maxRetries: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER).default(200),
-  initialDelayMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(500),
-  maxDelayMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(10_000),
-  jitterRatio: z.number().min(0).max(1).default(0.1),
-  retryableCodes: z.array(z.string()).default([...DEFAULT_RETRYABLE_CODES]),
+  provider: z.const(OFFICE_PROVIDER_ID).default(OFFICE_PROVIDER_ID).volatile(),
+  maxRetries: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER).default(200).volatile(),
+  initialDelayMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(500).volatile(),
+  maxDelayMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(10_000).volatile(),
+  jitterRatio: z.number().min(0).max(1).default(0.1).volatile(),
+  retryableCodes: z.array(z.string().min(1)).min(1).default([...DEFAULT_RETRYABLE_CODES]).volatile(),
   gateway: z.object({
     enabled: z.boolean().default(false),
     verifyEfforts: z.boolean().default(true),
     verifyAvailability: z.boolean().default(false),
     refreshIntervalMs: z.number().step(1).min(0).max(MAX_TIMER_DELAY_MS).default(900_000),
-  }).default(GATEWAY_DEFAULTS),
+  }).default(GATEWAY_DEFAULTS).volatile(),
 });

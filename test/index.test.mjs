@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { apply, Config, createOfficeController, officeRetryPolicy, validateConfig } from "../index.js";
+import { apply, Config, configValues, createOfficeController, officeRetryPolicy, validateConfig } from "../index.js";
 
 const clone = (value) => structuredClone(value);
 const company = { api: "openai-completions", baseURL: "https://aimemodeldev.myhexin.com/litellm/v1", apiKeyEnv: "MYHEXIN_OFFICE_API_KEY", models: [{ id: "old-model" }], headers: { "X-User-Header": "preserved" } };
@@ -16,17 +16,12 @@ function harness({ route = company, key, getResult = async () => clone(discovere
   const effects = [];
   const credential = { value: key };
   const ctx = {
+    fiber: { uid: 1 },
     logger: { warn: (message) => warnings.push(message) },
     get(name) { return name === "credentials" ? { resolve: async () => credential.value ? { value: credential.value } : undefined } : undefined; },
     settings: {
       documentPath: "/tmp/test-dsh/settings.json",
-      get: (ns) => clone(sections[ns]),
-      register(ns, schema, { base, validate }) {
-        const initial = schema(base);
-        validate(initial);
-        sections[ns] = initial;
-        return { get: () => clone(sections[ns]), watch: () => () => {} };
-      },
+      describe: () => Object.entries(sections).map(([ns, value]) => ({ ns, value: clone(value), revision: writes.length })),
       async mutate(ns, ops) {
         writes.push({ ns, ops });
         for (const { op, path, value } of ops) {
@@ -35,7 +30,7 @@ function harness({ route = company, key, getResult = async () => clone(discovere
           if (op === "unset") delete current[path.at(-1)];
           else current[path.at(-1)] = clone(value);
         }
-        events.get("settings/updated")?.(ns);
+        events.get("settings/document-updated")?.(ns);
       },
     },
     on(event, callback) { events.set(event, callback); return () => events.delete(event); },
@@ -46,7 +41,7 @@ function harness({ route = company, key, getResult = async () => clone(discovere
 }
 
 test("schema uses company scope and safe opt-in discovery defaults", () => {
-  const config = validateConfig(Config({}));
+  const config = validateConfig(configValues(Config({})));
   assert.equal(config.provider, "myhexin-office");
   assert.equal(config.maxRetries, 200);
   assert.equal(config.gateway.enabled, false);
@@ -214,7 +209,7 @@ test("an empty authorized catalog removes only the company route and can recover
   await controller.dispose();
 });
 
-test("Cordis 4 starts opt-in discovery without a ready event or a timer", async () => {
+test("Loader starts opt-in discovery without a ready event or a timer", async () => {
   const h = harness({ key: "test-only-secret" });
   apply(h.ctx, { gateway: { enabled: true, refreshIntervalMs: 0 } }, h.internals);
   await new Promise((resolve) => setImmediate(resolve));
@@ -265,4 +260,38 @@ test("discovery logs only phases and aggregate counts", async () => {
   assert.equal(JSON.stringify(messages).includes("test-only-secret"), false);
   assert.equal(JSON.stringify(messages).includes("new-model"), false);
   await controller.dispose();
+});
+
+
+test("live Loader config changes update retry policy without touching official providers", async () => {
+  const h = harness();
+  let maxRetries = 4;
+  const config = { ...Config({}), maxRetries: { get: () => maxRetries } };
+  apply(h.ctx, config, h.internals);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.sections["llm-pi-ai"].providers["myhexin-office"].retryPolicy.maxRetries, 4);
+  const officialBefore = clone(h.sections["llm-deepseek"]);
+  maxRetries = 9;
+  await h.events.get("loader/volatile-update")();
+  assert.equal(h.sections["llm-pi-ai"].providers["myhexin-office"].retryPolicy.maxRetries, 9);
+  assert.deepEqual(h.sections["llm-deepseek"], officialBefore);
+  const writesBefore = h.writes.length;
+  await h.events.get("loader/volatile-update")();
+  assert.equal(h.writes.length, writesBefore);
+  await h.dispose();
+});
+
+test("empty retry code lists are rejected before the native policy write", () => {
+  assert.throws(() => validateConfig({ retryableCodes: [] }), /non-empty/);
+});
+
+
+test("Loader config validation rejects invalid live backoff before persistence", async () => {
+  const h = harness();
+  apply(h.ctx, Config({}), h.internals);
+  const validate = h.events.get("internal/config");
+  assert.throws(() => validate(h.ctx.fiber, () => ({ initialDelayMs: 10, maxDelayMs: 5 })), /at least/);
+  const unrelated = { initialDelayMs: 10, maxDelayMs: 5 };
+  assert.equal(validate({ uid: 2 }, () => unrelated), unrelated);
+  await h.dispose();
 });
